@@ -1,9 +1,6 @@
 /**
- * DB 초기화 스크립트
- * Railway PostgreSQL에 올리브영 랭킹 테이블 생성
- * 
- * 실행: node init-db.js
- * 환경변수: DATABASE_URL (Railway에서 자동 제공)
+ * DB 초기화 스크립트 (재생성 버전)
+ * 기존 테이블 삭제 후 다시 생성
  */
 
 const { Pool } = require('pg');
@@ -17,11 +14,16 @@ async function initDB() {
   const client = await pool.connect();
   
   try {
-    console.log('🔧 올리브영 랭킹 테이블 생성 시작...\n');
+    console.log('🔧 기존 테이블 삭제 후 재생성...\n');
+
+    // 기존 테이블 삭제
+    await client.query('DROP TABLE IF EXISTS oy_products CASCADE');
+    await client.query('DROP TABLE IF EXISTS oy_collection_batches CASCADE');
+    console.log('🗑️ 기존 테이블 삭제 완료');
 
     // 1. 수집 배치 테이블
     await client.query(`
-      CREATE TABLE IF NOT EXISTS oy_collection_batches (
+      CREATE TABLE oy_collection_batches (
         id SERIAL PRIMARY KEY,
         collected_at DATE NOT NULL,
         total_products INTEGER DEFAULT 0,
@@ -36,7 +38,7 @@ async function initDB() {
 
     // 2. 제품 데이터 테이블
     await client.query(`
-      CREATE TABLE IF NOT EXISTS oy_products (
+      CREATE TABLE oy_products (
         id SERIAL PRIMARY KEY,
         batch_id INTEGER REFERENCES oy_collection_batches(id) ON DELETE CASCADE,
         collected_at DATE NOT NULL,
@@ -55,19 +57,20 @@ async function initDB() {
     `);
     console.log('✅ oy_products 테이블 생성 완료');
 
-    // 3. 인덱스 생성
+    // 3. 인덱스 생성 (하나씩)
     const indexes = [
-      'CREATE INDEX IF NOT EXISTS idx_oy_products_collected_at ON oy_products(collected_at)',
-      'CREATE INDEX IF NOT EXISTS idx_oy_products_batch_id ON oy_products(batch_id)',
-      'CREATE INDEX IF NOT EXISTS idx_oy_products_big_category ON oy_products(big_category)',
-      'CREATE INDEX IF NOT EXISTS idx_oy_products_small_category ON oy_products(small_category)',
-      'CREATE INDEX IF NOT EXISTS idx_oy_products_brand ON oy_products(brand)',
-      'CREATE INDEX IF NOT EXISTS idx_oy_products_rank ON oy_products(rank)',
-      'CREATE INDEX IF NOT EXISTS idx_oy_batches_collected_at ON oy_collection_batches(collected_at DESC)'
+      ['idx_oy_products_collected_at', 'CREATE INDEX idx_oy_products_collected_at ON oy_products(collected_at)'],
+      ['idx_oy_products_batch_id', 'CREATE INDEX idx_oy_products_batch_id ON oy_products(batch_id)'],
+      ['idx_oy_products_big_category', 'CREATE INDEX idx_oy_products_big_category ON oy_products(big_category)'],
+      ['idx_oy_products_small_category', 'CREATE INDEX idx_oy_products_small_category ON oy_products(small_category)'],
+      ['idx_oy_products_brand', 'CREATE INDEX idx_oy_products_brand ON oy_products(brand)'],
+      ['idx_oy_products_rank', 'CREATE INDEX idx_oy_products_rank ON oy_products(rank)'],
+      ['idx_oy_batches_collected_at', 'CREATE INDEX idx_oy_batches_collected_at ON oy_collection_batches(collected_at DESC)']
     ];
 
-    for (const idx of indexes) {
-      await client.query(idx);
+    for (const [name, sql] of indexes) {
+      await client.query(sql);
+      console.log(`  ✅ ${name}`);
     }
     console.log('✅ 인덱스 7개 생성 완료');
 
@@ -78,8 +81,16 @@ async function initDB() {
       ORDER BY table_name;
     `);
     
+    const columns = await client.query(`
+      SELECT column_name, data_type FROM information_schema.columns 
+      WHERE table_name = 'oy_products' ORDER BY ordinal_position;
+    `);
+    
     console.log('\n📋 생성된 테이블:');
     tables.rows.forEach(r => console.log(`   - ${r.table_name}`));
+    
+    console.log('\n📋 oy_products 컬럼:');
+    columns.rows.forEach(r => console.log(`   - ${r.column_name} (${r.data_type})`));
     
     console.log('\n🎉 DB 초기화 완료!');
 
