@@ -61,19 +61,19 @@ app.post('/api/oy/upload', async (req, res) => {
 
     // 기존 같은 날짜 데이터 삭제 (재실행 대응)
     const existingBatch = await client.query(
-      'SELECT id FROM oy_collection_batches WHERE collected_at = $1', [date]
+      'SELECT id FROM oy_ranking_batches WHERE collected_at = $1', [date]
     );
     
     if (existingBatch.rows.length > 0) {
       const oldBatchId = existingBatch.rows[0].id;
-      await client.query('DELETE FROM oy_products WHERE batch_id = $1', [oldBatchId]);
-      await client.query('DELETE FROM oy_collection_batches WHERE id = $1', [oldBatchId]);
+      await client.query('DELETE FROM oy_ranking_products WHERE batch_id = $1', [oldBatchId]);
+      await client.query('DELETE FROM oy_ranking_batches WHERE id = $1', [oldBatchId]);
       console.log(`  🔄 기존 ${date} 데이터 삭제 후 재업로드`);
     }
 
     // 배치 생성
     const batchResult = await client.query(
-      `INSERT INTO oy_collection_batches (collected_at, total_products, category_count, duration_minutes)
+      `INSERT INTO oy_ranking_batches (collected_at, total_products, category_count, duration_minutes)
        VALUES ($1, $2, $3, $4) RETURNING id`,
       [date, products.length, 18, duration_minutes || null]
     );
@@ -110,7 +110,7 @@ app.post('/api/oy/upload', async (req, res) => {
       }
 
       await client.query(
-        `INSERT INTO oy_products (batch_id, collected_at, big_category, mid_category, small_category, rank, brand, product_name, price, product_url, manufacturer, ingredients)
+        `INSERT INTO oy_ranking_products (batch_id, collected_at, big_category, mid_category, small_category, rank, brand, product_name, price, product_url, manufacturer, ingredients)
          VALUES ${placeholders.join(', ')}`,
         values
       );
@@ -155,7 +155,7 @@ app.get('/api/oy/products', async (req, res) => {
       conditions.push(`p.collected_at = $${paramIdx++}`);
       params.push(date);
     } else {
-      conditions.push(`p.collected_at = (SELECT MAX(collected_at) FROM oy_collection_batches)`);
+      conditions.push(`p.collected_at = (SELECT MAX(collected_at) FROM oy_ranking_batches)`);
     }
 
     if (bigCategory) {
@@ -179,7 +179,7 @@ app.get('/api/oy/products', async (req, res) => {
 
     // 총 개수
     const countResult = await pool.query(
-      `SELECT COUNT(*) as total FROM oy_products p ${whereClause}`, params
+      `SELECT COUNT(*) as total FROM oy_ranking_products p ${whereClause}`, params
     );
     const total = parseInt(countResult.rows[0].total);
 
@@ -187,8 +187,8 @@ app.get('/api/oy/products', async (req, res) => {
     const dataParams = [...params, parseInt(limit), offset];
     const dataResult = await pool.query(
       `SELECT p.*, b.collected_at as batch_date
-       FROM oy_products p
-       JOIN oy_collection_batches b ON p.batch_id = b.id
+       FROM oy_ranking_products p
+       JOIN oy_ranking_batches b ON p.batch_id = b.id
        ${whereClause}
        ORDER BY p.big_category, p.small_category, p.rank
        LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
@@ -219,8 +219,8 @@ app.get('/api/oy/batches', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT b.*, 
-              (SELECT COUNT(DISTINCT small_category) FROM oy_products WHERE batch_id = b.id) as actual_categories
-       FROM oy_collection_batches b
+              (SELECT COUNT(DISTINCT small_category) FROM oy_ranking_products WHERE batch_id = b.id) as actual_categories
+       FROM oy_ranking_batches b
        ORDER BY b.collected_at DESC
        LIMIT 52`
     );
@@ -244,14 +244,14 @@ app.get('/api/oy/ranking-changes', async (req, res) => {
     // 현재 날짜 (없으면 최신)
     let currentDate = date;
     if (!currentDate) {
-      const latest = await pool.query('SELECT MAX(collected_at) as d FROM oy_collection_batches');
+      const latest = await pool.query('SELECT MAX(collected_at) as d FROM oy_ranking_batches');
       currentDate = latest.rows[0]?.d;
       if (!currentDate) return res.json({ success: true, data: [] });
     }
 
     // 이전 수집 날짜 찾기
     const prevResult = await pool.query(
-      `SELECT MAX(collected_at) as d FROM oy_collection_batches WHERE collected_at < $1`,
+      `SELECT MAX(collected_at) as d FROM oy_ranking_batches WHERE collected_at < $1`,
       [currentDate]
     );
     const prevDate = prevResult.rows[0]?.d;
@@ -298,8 +298,8 @@ app.get('/api/oy/ranking-changes', async (req, res) => {
           WHEN prev.rank IS NOT NULL THEN prev.rank - curr.rank
           ELSE NULL
         END as rank_change
-      FROM oy_products curr
-      LEFT JOIN oy_products prev 
+      FROM oy_ranking_products curr
+      LEFT JOIN oy_ranking_products prev 
         ON curr.product_url = prev.product_url 
         AND curr.small_category = prev.small_category
         AND prev.collected_at = $2
@@ -329,7 +329,7 @@ app.get('/api/oy/stats', async (req, res) => {
 
     let targetDate = date;
     if (!targetDate) {
-      const latest = await pool.query('SELECT MAX(collected_at) as d FROM oy_collection_batches');
+      const latest = await pool.query('SELECT MAX(collected_at) as d FROM oy_ranking_batches');
       targetDate = latest.rows[0]?.d;
       if (!targetDate) return res.json({ success: true, data: null });
     }
@@ -337,7 +337,7 @@ app.get('/api/oy/stats', async (req, res) => {
     // 카테고리별 제품 수
     const categoryStats = await pool.query(`
       SELECT big_category, small_category, COUNT(*) as count, MAX(rank) as max_rank
-      FROM oy_products 
+      FROM oy_ranking_products 
       WHERE collected_at = $1
       GROUP BY big_category, small_category
       ORDER BY big_category, small_category
@@ -346,7 +346,7 @@ app.get('/api/oy/stats', async (req, res) => {
     // 대카테고리별 합계
     const bigCategoryStats = await pool.query(`
       SELECT big_category, COUNT(*) as count
-      FROM oy_products 
+      FROM oy_ranking_products 
       WHERE collected_at = $1
       GROUP BY big_category
       ORDER BY big_category
@@ -355,13 +355,13 @@ app.get('/api/oy/stats', async (req, res) => {
     // 총 브랜드 수
     const brandCount = await pool.query(`
       SELECT COUNT(DISTINCT brand) as count
-      FROM oy_products 
+      FROM oy_ranking_products 
       WHERE collected_at = $1
     `, [targetDate]);
 
     // 총 제품 수
     const totalProducts = await pool.query(`
-      SELECT COUNT(*) as count FROM oy_products WHERE collected_at = $1
+      SELECT COUNT(*) as count FROM oy_ranking_products WHERE collected_at = $1
     `, [targetDate]);
 
     res.json({
@@ -395,7 +395,7 @@ app.get('/api/oy/export', async (req, res) => {
       conditions.push(`p.collected_at = $${paramIdx++}`);
       params.push(date);
     } else {
-      conditions.push(`p.collected_at = (SELECT MAX(collected_at) FROM oy_collection_batches)`);
+      conditions.push(`p.collected_at = (SELECT MAX(collected_at) FROM oy_ranking_batches)`);
     }
 
     if (bigCategory) {
@@ -411,7 +411,7 @@ app.get('/api/oy/export', async (req, res) => {
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const result = await pool.query(
-      `SELECT p.* FROM oy_products p ${whereClause} ORDER BY p.big_category, p.small_category, p.rank`,
+      `SELECT p.* FROM oy_ranking_products p ${whereClause} ORDER BY p.big_category, p.small_category, p.rank`,
       params
     );
 
@@ -534,13 +534,13 @@ app.listen(PORT, async () => {
     // 테이블 존재 확인
     const tables = await pool.query(`
       SELECT table_name FROM information_schema.tables 
-      WHERE table_schema = 'public' AND table_name LIKE 'oy_%'
+      WHERE table_schema = 'public' AND table_name LIKE 'oy_ranking_%'
     `);
     
     if (tables.rows.length === 0) {
-      console.log('⚠️ oy_ 테이블이 없습니다. init-db.js를 먼저 실행하세요.');
+      console.log('⚠️ oy_ranking_ 테이블이 없습니다. init-db.js를 먼저 실행하세요.');
     } else {
-      console.log(`📊 oy_ 테이블 ${tables.rows.length}개 확인됨`);
+      console.log(`📊 oy_ranking_ 테이블 ${tables.rows.length}개 확인됨`);
     }
   } catch (e) {
     console.error('❌ DB 연결 실패:', e.message);
