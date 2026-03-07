@@ -421,53 +421,8 @@ app.get('/api/oy/export', async (req, res) => {
 
     // 엑셀 생성
     const workbook = new ExcelJS.Workbook();
-    
-    // 대카테고리별 시트 생성
-    const bigCategories = [...new Set(result.rows.map(r => r.big_category))];
 
-    for (const bigCat of bigCategories) {
-      const sheet = workbook.addWorksheet(bigCat);
-      
-      // 헤더
-      sheet.columns = [
-        { header: '대카테고리', key: 'big_category', width: 12 },
-        { header: '중카테고리', key: 'mid_category', width: 15 },
-        { header: '소카테고리', key: 'small_category', width: 15 },
-        { header: '순위', key: 'rank', width: 8 },
-        { header: '브랜드', key: 'brand', width: 18 },
-        { header: '상품명', key: 'product_name', width: 45 },
-        { header: '가격', key: 'price', width: 12 },
-        { header: '상품URL', key: 'product_url', width: 50 },
-        { header: '제조업자', key: 'manufacturer', width: 40 },
-        { header: '성분', key: 'ingredients', width: 60 }
-      ];
-
-      // 헤더 스타일
-      sheet.getRow(1).eachCell(cell => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
-        cell.font = { color: { argb: 'FFFFFFFF' }, bold: true, size: 10 };
-        cell.alignment = { vertical: 'middle', horizontal: 'center' };
-      });
-
-      // 데이터
-      const catRows = result.rows.filter(r => r.big_category === bigCat);
-      catRows.forEach(row => {
-        const dataRow = sheet.addRow(row);
-        // URL을 하이퍼링크로
-        if (row.product_url) {
-          const urlCell = dataRow.getCell('product_url');
-          urlCell.value = { text: row.product_url, hyperlink: row.product_url };
-          urlCell.font = { color: { argb: 'FF0563C1' }, underline: true };
-        }
-      });
-
-      // 필터 설정
-      sheet.autoFilter = { from: 'A1', to: 'J1' };
-    }
-
-    // 전체 시트도 추가
-    const allSheet = workbook.addWorksheet('전체');
-    allSheet.columns = [
+    const sheetColumns = [
       { header: '대카테고리', key: 'big_category', width: 12 },
       { header: '중카테고리', key: 'mid_category', width: 15 },
       { header: '소카테고리', key: 'small_category', width: 15 },
@@ -479,20 +434,42 @@ app.get('/api/oy/export', async (req, res) => {
       { header: '제조업자', key: 'manufacturer', width: 40 },
       { header: '성분', key: 'ingredients', width: 60 }
     ];
-    allSheet.getRow(1).eachCell(cell => {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
-      cell.font = { color: { argb: 'FFFFFFFF' }, bold: true, size: 10 };
-      cell.alignment = { vertical: 'middle', horizontal: 'center' };
-    });
-    result.rows.forEach(row => {
-      const dataRow = allSheet.addRow(row);
-      if (row.product_url) {
-        const urlCell = dataRow.getCell('product_url');
-        urlCell.value = { text: row.product_url, hyperlink: row.product_url };
-        urlCell.font = { color: { argb: 'FF0563C1' }, underline: true };
-      }
-    });
-    allSheet.autoFilter = { from: 'A1', to: 'J1' };
+
+    const applyHeaderStyle = (sheet) => {
+      sheet.getRow(1).eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
+        cell.font = { color: { argb: 'FFFFFFFF' }, bold: true, size: 10 };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      });
+    };
+
+    const addRowsWithHyperlinks = (sheet, rows) => {
+      rows.forEach(row => {
+        const dataRow = sheet.addRow(row);
+        if (row.product_url) {
+          const urlCell = dataRow.getCell('product_url');
+          urlCell.value = { text: row.product_url, hyperlink: row.product_url };
+          urlCell.font = { color: { argb: 'FF0563C1' }, underline: true };
+        }
+      });
+      sheet.autoFilter = { from: 'A1', to: 'J1' };
+    };
+
+    // 전체 시트를 첫 번째로 생성
+    const allSheet = workbook.addWorksheet('전체');
+    allSheet.columns = sheetColumns;
+    applyHeaderStyle(allSheet);
+    addRowsWithHyperlinks(allSheet, result.rows);
+
+    // 대카테고리별 시트 생성
+    const bigCategories = [...new Set(result.rows.map(r => r.big_category))];
+
+    for (const bigCat of bigCategories) {
+      const sheet = workbook.addWorksheet(bigCat);
+      sheet.columns = sheetColumns;
+      applyHeaderStyle(sheet);
+      addRowsWithHyperlinks(sheet, result.rows.filter(r => r.big_category === bigCat));
+    }
 
     // 응답
     const exportDate = result.rows[0].collected_at?.toISOString?.()?.slice(0, 10) || date || 'latest';
