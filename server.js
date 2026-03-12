@@ -91,7 +91,7 @@ app.post('/api/oy/upload', async (req, res) => {
       let paramIdx = 1;
 
       for (const p of chunk) {
-        placeholders.push(`($${paramIdx}, $${paramIdx+1}, $${paramIdx+2}, $${paramIdx+3}, $${paramIdx+4}, $${paramIdx+5}, $${paramIdx+6}, $${paramIdx+7}, $${paramIdx+8}, $${paramIdx+9}, $${paramIdx+10}, $${paramIdx+11})`);
+        placeholders.push(`($${paramIdx}, $${paramIdx+1}, $${paramIdx+2}, $${paramIdx+3}, $${paramIdx+4}, $${paramIdx+5}, $${paramIdx+6}, $${paramIdx+7}, $${paramIdx+8}, $${paramIdx+9}, $${paramIdx+10}, $${paramIdx+11}, $${paramIdx+12})`);
         values.push(
           batchId,
           date,
@@ -102,15 +102,16 @@ app.post('/api/oy/upload', async (req, res) => {
           p.brand || '',
           p.productName || p.product_name || p.name || '',
           p.price || '',
+          p.originalPrice || p.original_price || '',
           p.productUrl || p.product_url || '',
           p.manufacturer || p.manufacturerFullInfo || null,
           p.ingredients || null
         );
-        paramIdx += 12;
+        paramIdx += 13;
       }
 
       await client.query(
-        `INSERT INTO oy_ranking_products (batch_id, collected_at, big_category, mid_category, small_category, rank, brand, product_name, price, product_url, manufacturer, ingredients)
+        `INSERT INTO oy_ranking_products (batch_id, collected_at, big_category, mid_category, small_category, rank, brand, product_name, price, original_price, product_url, manufacturer, ingredients)
          VALUES ${placeholders.join(', ')}`,
         values
       );
@@ -286,6 +287,7 @@ app.get('/api/oy/ranking-changes', async (req, res) => {
         curr.brand,
         curr.product_name,
         curr.price,
+        curr.original_price,
         curr.product_url,
         prev.rank as previous_rank,
         CASE 
@@ -429,7 +431,8 @@ app.get('/api/oy/export', async (req, res) => {
       { header: '순위', key: 'rank', width: 8 },
       { header: '브랜드', key: 'brand', width: 18 },
       { header: '상품명', key: 'product_name', width: 45 },
-      { header: '가격', key: 'price', width: 12 },
+      { header: '정가', key: 'original_price', width: 12 },
+      { header: '할인가', key: 'price', width: 12 },
       { header: '상품URL', key: 'product_url', width: 50 },
       { header: '제조업자', key: 'manufacturer', width: 40 },
       { header: '성분', key: 'ingredients', width: 60 }
@@ -452,7 +455,7 @@ app.get('/api/oy/export', async (req, res) => {
           urlCell.font = { color: { argb: 'FF0563C1' }, underline: true };
         }
       });
-      sheet.autoFilter = { from: 'A1', to: 'J1' };
+      sheet.autoFilter = { from: 'A1', to: 'K1' };
     };
 
     // 전체 시트를 첫 번째로 생성
